@@ -1,0 +1,1297 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Multi-Número Sender Randômico</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text x='0' y='14' font-size='14'>📱</text></svg>" type="image/svg+xml">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" integrity="sha512-Fo3rlrZj/k7ujTnHg4CGR2D7kSs0V4LLanw2qksYuRlEzO+tcaEPQogQ0KaoIF2d/s0XFfFVfJ8Lz1/LhW4q4w==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    
+    <style type="text/css">
+        /* --- Variáveis CSS para Cores e Fontes --- */
+        :root {
+            /* Cores base neutras - escala de cinzas aprimorada */
+            --white: #ffffff;
+            --black: #0a0a0a; /* Quase preto */
+
+            --gray-050: #f9fafb; /* Mais claro que gray-100 */
+            --gray-100: #f4f6f8; /* Fundo claro principal */
+            --gray-200: #e9ecef; /* Borda leve, toggle bg claro */
+            --gray-300: #dee2e6; /* Borda mais visível */
+            --gray-400: #ced4da; /* Borda input claro */
+            --gray-500: #adb5bd; /* Mid gray */
+            --gray-600: #6c757d;
+            --gray-700: #495057; /* Texto secundário claro */
+            --gray-800: #343a40; /* Títulos claro */
+            --gray-900: #212529; /* Texto primário claro, log bg */
+
+            --dark-gray-050: #202020; /* Fundo cards escuro */
+            --dark-gray-100: #2c2c2c; /* Fundo input/qr escuro */
+            --dark-gray-200: #3a3a3a; /* Borda escuro, toggle bg escuro */
+            --dark-gray-300: #4a4a4a;
+            --dark-gray-400: #5a5a5a;
+
+            /* Design tokens */
+            --border-radius-base: 12px;
+            --border-radius-sm: 8px;
+            --transition-speed: 0.3s ease-in-out;
+            --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.06);
+            --shadow-md: 0 5px 15px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.15);
+            --font-family-body: 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+            --font-family-mono: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+            --header-height: 80px;
+        }
+
+        /* --- Tema Claro (Padrão) --- */
+        html[data-theme='light'] {
+            --background-body: var(--gray-100); /* Fundo da página: cinza muito claro */
+            --background-card: var(--white); /* Fundo dos cards: branco puro */
+            --border-color-light: var(--gray-300); /* Bordas: cinza médio claro */
+            --text-primary: var(--gray-900);
+            --text-secondary: var(--gray-700);
+            --heading-color: var(--gray-800);
+
+            --brand-primary: #28a745; /* Verde WhatsApp */
+            --brand-primary-hover: #218838;
+            --brand-secondary: #007bff; /* Azul para ações secundárias */
+            --brand-secondary-hover: #0056b3;
+
+            --input-bg: var(--white);
+            --input-border: var(--gray-400); /* Borda mais visível para inputs */
+            --input-focus-border: var(--brand-primary);
+            --input-focus-shadow: rgba(40, 167, 69, 0.25);
+
+            --status-active: #28a745;
+            --status-inactive: #dc3545; /* Vermelho */
+
+            --qr-area-bg: var(--gray-050); /* Área QR: cinza muito muito claro */
+            --qr-area-border: var(--gray-300);
+
+            --log-bg: var(--gray-900); /* Fundo escuro para o log */
+            --log-text: var(--gray-100); /* Texto claro no log escuro */
+            --log-border: var(--gray-700);
+            --log-separator: #444;
+
+            --log-info-color: #17a2b8;
+            --log-success-color: #28a745;
+            --log-error-color: #dc3545;
+            --log-warning-color: #ffc107;
+
+            --progress-bg: var(--gray-300);
+            --progress-bar-color: var(--brand-primary);
+            --progress-text-color: var(--text-primary);
+
+            --theme-toggle-bg: var(--gray-200);
+            --theme-toggle-color: var(--text-secondary);
+            --theme-toggle-hover-bg: var(--gray-300);
+        }
+
+        /* --- Tema Escuro --- */
+        html[data-theme='dark'] {
+            --background-body: var(--black); /* Fundo da página: quase preto */
+            --background-card: var(--dark-gray-050); /* Fundo dos cards: cinza escuro sutil */
+            --border-color-light: var(--dark-gray-200); /* Bordas: cinza escuro médio */
+            --text-primary: var(--gray-100); /* Texto primário: branco suave */
+            --text-secondary: var(--gray-400); /* Texto secundário: cinza médio */
+            --heading-color: var(--white);
+
+            --brand-primary: #00a884; /* Verde WhatsApp Dark Mode */
+            --brand-primary-hover: #008f72;
+            --brand-secondary: #53bdeb; /* Azul claro para ações secundárias */
+            --brand-secondary-hover: #3aa6d7;
+
+            --input-bg: var(--dark-gray-100); /* Fundo inputs: cinza escuro mais claro */
+            --input-border: var(--dark-gray-200);
+            --input-focus-border: var(--brand-primary);
+            --input-focus-shadow: rgba(0, 168, 132, 0.35);
+
+            --status-active: #00a884;
+            --status-inactive: #ff6b6b; /* Vermelho mais suave */
+
+            --qr-area-bg: var(--dark-gray-100); /* Área QR: cinza escuro mais claro */
+            --qr-area-border: var(--dark-gray-200);
+
+            --log-bg: var(--black); /* Fundo log: quase preto (mesmo do body) */
+            --log-text: var(--gray-050); /* Texto claro no log */
+            --log-border: var(--dark-gray-200);
+            --log-separator: #333;
+
+            --log-info-color: #53bdeb;
+            --log-success-color: #00a884;
+            --log-error-color: #ff6b6b;
+            --log-warning-color: #ffda6a;
+
+            --progress-bg: var(--dark-gray-200);
+            --progress-bar-color: var(--brand-primary);
+            --progress-text-color: var(--text-primary);
+
+            --theme-toggle-bg: var(--dark-gray-200);
+            --theme-toggle-color: var(--text-primary);
+            --theme-toggle-hover-bg: var(--dark-gray-300);
+        }
+
+        /* --- Estilos Globais --- */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-family-body);
+            background-color: var(--background-body);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            line-height: 1.6;
+            transition: background-color var(--transition-speed), color var(--transition-speed);
+            padding-bottom: 30px; /* Espaço para não cortar conteúdo no rodapé */
+        }
+
+        /* --- Header --- */
+        header {
+            width: 100%;
+            background-color: var(--background-card);
+            padding: 20px;
+            box-shadow: var(--shadow-md);
+            text-align: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--border-color-light);
+            transition: background-color var(--transition-speed), border-color var(--transition-speed);
+        }
+
+        header h1 {
+            color: var(--heading-color);
+            font-size: 2.5em;
+            margin: 0;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: linear-gradient(90deg, var(--brand-primary), var(--brand-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-fill-color: transparent;
+        }
+
+        /* --- Dashboard Layout (Main Content Area + Sidebar) --- */
+        .dashboard-layout {
+            display: grid;
+            gap: 30px;
+            width: 100%;
+            max-width: 1400px;
+            padding: 0 20px;
+            grid-template-columns: 1fr; /* Padrão para uma coluna em mobile */
+        }
+
+        /* Desktop Layout */
+        @media (min-width: 992px) {
+            .dashboard-layout {
+                grid-template-columns: 2fr 1fr; /* Duas colunas: 2/3 para conteúdo principal, 1/3 para sidebar */
+            }
+            .main-content-area {
+                grid-column: 1;
+            }
+            .sidebar-area {
+                grid-column: 2;
+            }
+        }
+
+        .main-content-area, .sidebar-area {
+            display: flex;
+            flex-direction: column;
+            gap: 25px; /* Espaço entre os cards dentro das áreas */
+        }
+
+        /* --- Seções de Card --- */
+        .section-card {
+            background-color: var(--background-card);
+            border: 1px solid var(--border-color-light);
+            border-radius: var(--border-radius-base);
+            padding: 30px;
+            box-shadow: var(--shadow-md);
+            transition: background-color var(--transition-speed), border-color var(--transition-speed), box-shadow var(--transition-speed);
+            position: relative; /* Para posicionamento interno se necessário */
+            overflow: hidden; /* Garante que sombras internas não vazem */
+        }
+
+        .section-card h2, .section-card h3 {
+            color: var(--heading-color);
+            margin-bottom: 25px;
+            font-weight: 600;
+            text-align: center;
+            transition: color var(--transition-speed);
+        }
+
+        .section-card h2 {
+            font-size: 1.8em;
+            border-bottom: 2px solid var(--brand-primary);
+            padding-bottom: 15px;
+        }
+
+        .section-card h3 {
+            font-size: 1.3em;
+            margin-bottom: 15px;
+        }
+
+        /* --- Botão de Alternância de Tema --- */
+        #theme-toggle {
+            position: fixed;
+            top: 25px;
+            right: 25px;
+            background-color: var(--theme-toggle-bg);
+            color: var(--theme-toggle-color);
+            border: none;
+            padding: 12px 18px;
+            border-radius: var(--border-radius-sm);
+            cursor: pointer;
+            font-size: 1em;
+            font-weight: 500;
+            transition: background-color var(--transition-speed), color var(--transition-speed), box-shadow var(--transition-speed);
+            box-shadow: var(--shadow-sm);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            outline: none; /* Remove outline padrão */
+        }
+
+        #theme-toggle:hover {
+            background-color: var(--theme-toggle-hover-bg);
+            box-shadow: var(--shadow-md);
+            transform: translateY(-1px);
+        }
+
+        #theme-toggle:focus-visible {
+            box-shadow: 0 0 0 3px var(--brand-primary);
+        }
+
+        /* --- Formulários e Entradas --- */
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            margin-bottom: 20px;
+        }
+
+        label {
+            font-weight: 600;
+            color: var(--heading-color);
+            margin-bottom: 5px;
+            display: block;
+            font-size: 0.95em;
+        }
+
+        input[type="number"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 1px solid var(--input-border);
+            border-radius: var(--border-radius-sm);
+            font-size: 1em;
+            background-color: var(--input-bg);
+            color: var(--text-primary);
+            transition: border-color var(--transition-speed), box-shadow var(--transition-speed), background-color var(--transition-speed), color var(--transition-speed);
+            font-family: var(--font-family-body);
+        }
+
+        input[type="number"]:focus,
+        textarea:focus,
+        select:focus {
+            border-color: var(--input-focus-border);
+            box-shadow: 0 0 0 4px var(--input-focus-shadow);
+            outline: none;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 240px;
+        }
+
+        /* Estilos específicos para o input de número de Senders */
+        #numClients {
+            height: 80px; /* Aproximadamente o dobro da altura visual */
+            width: 33.33%; /* Um terço da largura do pai */
+            align-self: center; /* Centraliza o input dentro do formulário flex-column */
+            text-align: center; /* Centraliza o texto do número dentro do input */
+            font-size: 1.5em; /* Aumenta a fonte para preencher o espaço */
+            font-weight: bold;
+        }
+
+        .info-text {
+            font-size: 0.85em;
+            color: var(--text-secondary);
+            text-align: center;
+            margin-top: 15px;
+        }
+
+        /* --- Botões --- */
+        button {
+            background-color: var(--brand-primary);
+            color: var(--white);
+            padding: 14px 25px;
+            border: none;
+            border-radius: var(--border-radius-sm);
+            cursor: pointer;
+            font-size: 1.05em;
+            font-weight: 600;
+            transition: background-color var(--transition-speed), transform 0.2s ease, box-shadow var(--transition-speed);
+            box-shadow: var(--shadow-sm);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        button:hover:not(:disabled) {
+            background-color: var(--brand-primary-hover);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+        }
+
+        button:active:not(:disabled) {
+            transform: translateY(0);
+            box-shadow: var(--shadow-sm);
+        }
+
+        button:disabled {
+            background-color: var(--gray-500);
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+            color: var(--gray-200);
+            opacity: 0.8;
+        }
+
+        /* --- Seção de Gerenciamento de Senders --- */
+        #clients-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .client-card {
+            background-color: var(--input-bg); /* Fundo mais claro para cards individuais */
+            border: 1px solid var(--border-color-light);
+            border-radius: var(--border-radius-sm);
+            padding: 20px;
+            text-align: center;
+            box-shadow: var(--shadow-sm);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transition: background-color var(--transition-speed), border-color var(--transition-speed), box-shadow var(--transition-speed);
+        }
+
+        .client-card h3 {
+            color: var(--brand-primary);
+            margin-bottom: 10px;
+        }
+
+        .client-card p {
+            margin: 5px 0;
+            font-size: 0.9em;
+            color: var(--text-secondary);
+        }
+
+        .client-card strong {
+            color: var(--heading-color);
+        }
+
+        .client-card .qr-code-area {
+            margin: 15px 0;
+            background-color: var(--qr-area-bg);
+            border: 1px dashed var(--qr-area-border);
+            padding: 10px;
+            border-radius: var(--border-radius-sm);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 200px;
+            transition: background-color var(--transition-speed), border-color var(--transition-speed);
+        }
+
+        .client-card .qr-code-area img {
+            max-width: 100%;
+            height: auto;
+            border: 5px solid var(--background-card);
+            box-shadow: var(--shadow-sm);
+            display: block;
+            margin: 0 auto;
+            transition: border-color var(--transition-speed), box-shadow var(--transition-speed);
+        }
+
+        .client-card .reauthenticate-btn {
+            background-color: var(--brand-secondary);
+            margin-top: 20px;
+            width: 100%;
+        }
+
+        .client-card .reauthenticate-btn:hover:not(:disabled) {
+            background-color: var(--brand-secondary-hover);
+        }
+
+        /* --- Seção de Rotina de Mensagens --- */
+        .message-routine .routine-status-bar {
+            text-align: center;
+            margin-bottom: 25px;
+            font-size: 1.2em;
+            padding: 15px;
+            background-color: var(--background-body);
+            border-radius: var(--border-radius-sm);
+            border: 1px solid var(--border-color-light);
+            font-weight: 500;
+            transition: background-color var(--transition-speed), border-color var(--transition-speed);
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .routine-status-bar strong {
+            color: var(--heading-color);
+        }
+
+        .routine-status-bar .status-active {
+            color: var(--status-active);
+            font-weight: bold;
+            animation: pulse 1.5s infinite;
+        }
+
+        .routine-status-bar .status-inactive {
+            color: var(--status-inactive);
+            font-weight: bold;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.02); opacity: 0.9; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .message-routine .delay-settings {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            align-items: center;
+            margin-top: 20px;
+            padding: 15px;
+            background-color: var(--input-bg);
+            border-radius: var(--border-radius-sm);
+            border: 1px solid var(--input-border);
+            transition: background-color var(--transition-speed), border-color var(--transition-speed);
+        }
+
+        .message-routine .delay-settings label {
+            flex-basis: auto;
+            margin-bottom: 0;
+            white-space: nowrap; /* Impede quebras de linha em labels pequenas */
+        }
+
+        .message-routine .delay-settings input {
+            flex-basis: 80px;
+            flex-grow: 0;
+            margin-top: 0;
+        }
+
+        .message-routine .routine-controls {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        /* --- Barra de Progresso --- */
+        .progress-bar-container {
+            width: 100%;
+            background-color: var(--progress-bg);
+            border-radius: var(--border-radius-sm);
+            margin-top: 25px;
+            overflow: hidden;
+            height: 35px;
+            position: relative;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,.1);
+            transition: background-color var(--transition-speed);
+        }
+
+        .progress-bar {
+            height: 100%;
+            background-color: var(--progress-bar-color);
+            width: 0%;
+            border-radius: var(--border-radius-sm);
+            text-align: center;
+            line-height: 35px;
+            color: white;
+            transition: width 0.7s ease-in-out, background-color var(--transition-speed);
+            position: absolute;
+            top: 0;
+            left: 0;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+            font-size: 0.95em;
+        }
+
+        .progress-text {
+            position: absolute;
+            width: 100%;
+            text-align: center;
+            line-height: 35px;
+            color: var(--progress-text-color);
+            font-weight: bold;
+            z-index: 1;
+            transition: color var(--transition-speed);
+            font-size: 0.95em;
+        }
+
+        /* --- Área de Log --- */
+        .log-area {
+            margin-top: 0; /* Ajustado para o novo layout */
+        }
+
+        .log-area h3 {
+            text-align: left;
+            margin-bottom: 15px;
+        }
+
+        .log-content {
+            background-color: var(--log-bg);
+            border: 1px solid var(--log-border);
+            height: 300px; /* Mais alto para melhor visualização */
+            overflow-y: scroll;
+            padding: 15px;
+            font-family: var(--font-family-mono);
+            font-size: 0.85em;
+            line-height: 1.5;
+            color: var(--log-text);
+            border-radius: var(--border-radius-sm);
+            margin-bottom: 15px;
+            transition: background-color var(--transition-speed), border-color var(--transition-speed), color var(--transition-speed);
+            box-shadow: inset 0 0 8px rgba(0,0,0,0.1);
+        }
+
+        .log-content p {
+            margin: 0;
+            padding: 4px 0;
+            border-bottom: 1px dotted var(--log-separator);
+        }
+
+        .log-content p:last-child {
+            border-bottom: none;
+        }
+
+        .log-content p.log-info { color: var(--log-info-color); }
+        .log-content p.log-success { color: var(--log-success-color); }
+        .log-content p.log-error { color: var(--log-error-color); }
+        .log-content p.log-warning { color: var(--log-warning-color); }
+
+        .log-area .save-log-btn {
+            background-color: var(--gray-700);
+            width: auto;
+            padding: 10px 18px;
+            float: right;
+            margin-top: 10px;
+        }
+
+        .log-area .save-log-btn:hover:not(:disabled) {
+            background-color: var(--gray-900);
+        }
+
+        /* --- Media Queries para Responsividade --- */
+
+        /* Tablets e Telas Médias (768px a 991px) */
+        @media (max-width: 991px) {
+            header h1 {
+                font-size: 2em;
+            }
+            .dashboard-layout {
+                padding: 0 15px;
+                gap: 25px;
+            }
+            .section-card {
+                padding: 25px;
+            }
+            .section-card h2 {
+                font-size: 1.6em;
+            }
+            .section-card h3 {
+                font-size: 1.2em;
+            }
+            #clients-container {
+                grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            }
+            .client-card .qr-code-area {
+                min-height: 180px;
+            }
+            .message-routine .routine-status-bar {
+                font-size: 1.1em;
+            }
+            .log-content {
+                height: 250px;
+            }
+            /* Responsividade para #numClients */
+            #numClients {
+                width: 50%; /* Ocupa metade da largura em tablets */
+                font-size: 1.4em;
+            }
+        }
+
+        /* Smartphones e Telas Pequenas (abaixo de 768px) */
+        @media (max-width: 767px) {
+            body {
+                padding: 15px;
+            }
+            header {
+                padding: 15px;
+                margin-bottom: 15px;
+            }
+            header h1 {
+                font-size: 1.7em;
+            }
+            .dashboard-layout {
+                padding: 0;
+                gap: 20px;
+                grid-template-columns: 1fr; /* Força uma única coluna */
+            }
+            .section-card {
+                padding: 20px;
+                border-radius: var(--border-radius-sm);
+            }
+            .section-card h2 {
+                font-size: 1.4em;
+                margin-bottom: 20px;
+            }
+            .section-card h3 {
+                font-size: 1.1em;
+                margin-bottom: 10px;
+            }
+            input[type="number"], textarea, select, button {
+                padding: 10px 15px;
+                font-size: 0.95em;
+            }
+            .message-routine .delay-settings {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 15px;
+                padding: 12px;
+            }
+            .message-routine .delay-settings label {
+                margin-bottom: 0;
+            }
+            .message-routine .delay-settings input {
+                width: 100%;
+            }
+            .routine-controls {
+                flex-direction: column;
+                gap: 15px;
+            }
+            .log-area .save-log-btn {
+                float: none;
+                width: 100%;
+                margin-top: 15px;
+            }
+            #theme-toggle {
+                top: 15px;
+                right: 15px;
+                padding: 10px 15px;
+                font-size: 0.9em;
+                gap: 6px;
+            }
+            .progress-bar-container {
+                height: 30px;
+            }
+            .progress-bar, .progress-text {
+                line-height: 30px;
+                font-size: 0.9em;
+            }
+            /* Responsividade para #numClients */
+            #numClients {
+                width: 100%; /* Ocupa largura total em mobile */
+                height: 60px; /* Mantém uma altura maior, mas não excessiva */
+                font-size: 1.3em;
+            }
+        }
+
+        /* Pequenas Telas de Celular (abaixo de 480px) */
+        @media (max-width: 480px) {
+            body {
+                padding: 10px;
+            }
+            header {
+                padding: 10px;
+            }
+            header h1 {
+                font-size: 1.5em;
+            }
+            .section-card {
+                padding: 15px;
+            }
+            .section-card h2 {
+                font-size: 1.2em;
+            }
+            .section-card h3 {
+                font-size: 1em;
+            }
+            .client-card .qr-code-area {
+                min-height: 160px;
+            }
+            .log-content {
+                height: 200px;
+                font-size: 0.8em;
+            }
+            #theme-toggle {
+                font-size: 0.8em;
+                padding: 8px 12px;
+                gap: 5px;
+            }
+            /* Responsividade para #numClients */
+            #numClients {
+                height: 55px;
+                font-size: 1.2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <button id="theme-toggle" aria-label="Mudar tema">
+        <i class="fas fa-sun" id="theme-icon"></i> <span id="theme-text">Mudar tema</span>
+    </button>
+
+    <header>
+        <h1 style="margin-right:200px">WhatsApp Multi-Número Sender Randômico</h1>
+    </header>
+
+    <main class="dashboard-layout">
+        <section class="main-content-area">
+            <div class="section-card">
+                <h2>Configurações de Senders</h2>
+                <form id="set-clients-form">
+                    <label for="numClients">Número de Senders (1-10):</label>
+                    <input type="number" id="numClients" name="numClients" min="1" max="10" value="1" required>
+                    <button style="sbDefinirSenders" type="submit">Definir Senders</button>
+                </form>
+                <p class="info-text">Após definir, o servidor pode reiniciar Senders para ajustar.</p>
+            </div>
+
+            <div class="section-card message-routine">
+                <h2>Rotina de Envio de Mensagens</h2>
+                <div class="routine-status-bar">
+                    <strong>Status da Rotina:</strong> <span id="routineStatus" class="status-inactive">Inativa</span>
+                </div>
+
+                <label for="contactList">Lista de Contatos (Nome,Número; um por linha):</label>
+                <textarea id="contactList" rows="10" placeholder="Ex:&#10;João,5541912345678&#10;Maria,5511998765432"></textarea>
+
+                <label for="messageContents">Lista de Mensagens (uma mensagem por linha):</label>
+                <textarea id="messageContents" rows="5" placeholder="Olá {nome}, tudo bem?¨¨Aproveite a {oferta}!"></textarea>
+                <button type="button" id="saveMessagesBtn" style="margin-top: 10px; background-color: var(--brand-secondary);">Salvar Mensagens</button>
+
+                <div class="delay-settings">
+                    <label for="minDelay">Atraso Mínimo (segundos):</label>
+                    <input type="number" id="minDelay" value="5" min="1">
+                    <label for="maxDelay">Atraso Máximo (segundos):</label>
+                    <input type="number" id="maxDelay" value="15" min="1">
+                </div>
+
+                <label for="availableClients">Usar Sender Específico:</label>
+                <select id="availableClients">
+                    <option value="">Todos os Prontos (Rodízio)</option>
+                </select>
+
+                <div class="routine-controls">
+                    <button id="startRoutineBtn" disabled><i class="fas fa-play"></i> Iniciar Rotina</button>
+                    <button id="stopRoutineBtn" disabled><i class="fas fa-stop"></i> Parar Rotina</button>
+                </div>
+
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="routineProgressBar" style="width: 0%;"></div>
+                    <div class="progress-text" id="routineProgressText">0/0 (0%)</div>
+                </div>
+            </div>
+            
+            <div class="section-card log-area">
+                <h3>Log da Rotina</h3>
+                <div id="routineLog" class="log-content">
+                </div>
+                <button id="saveLogBtn" class="save-log-btn"><i class="fas fa-save"></i> Salvar Log</button>
+            </div>
+            
+        </section>
+
+        <aside class="sidebar-area">
+            <div class="section-card client-management">
+                <h2>Status dos Senders WhatsApp</h2>
+                <div id="clients-container">
+                    <p>Carregando status dos Senders...</p>
+                </div>
+            </div>
+
+        </aside>
+    </main>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="code8.js"></script> <script type="text/javascript">
+document.addEventListener('DOMContentLoaded', () => {
+    const socket = io();
+
+    const clientsContainer = document.getElementById('clients-container');
+    const setClientsForm = document.getElementById('set-clients-form');
+    const numClientsInput = document.getElementById('numClients');
+    
+    const contactListInput = document.getElementById('contactList');
+    const messageContentsInput = document.getElementById('messageContents');
+
+    const startRoutineBtn = document.getElementById('startRoutineBtn');
+    const stopRoutineBtn = document.getElementById('stopRoutineBtn');
+    const routineLog = document.getElementById('routineLog');
+    const saveLogBtn = document.getElementById('saveLogBtn');
+    const routineStatusSpan = document.getElementById('routineStatus');
+    const availableClientsSelect = document.getElementById('availableClients');
+    const routineProgressBar = document.getElementById('routineProgressBar');
+    const routineProgressText = document.getElementById('routineProgressText');
+    const minDelayInput = document.getElementById('minDelay');
+    const maxDelayInput = document.getElementById('maxDelay');
+    const saveMessagesBtn = document.getElementById('saveMessagesBtn'); // NOVO
+
+    let allClients = {};
+    let readyClientsForRoutine = [];
+
+    // --- Funções de Utilitário do Frontend ---
+    function appendRoutineLog(logEntry) {
+        const p = document.createElement('p');
+        p.textContent = `[${logEntry.timestamp}] ${logEntry.message}`;
+        p.classList.add(`log-${logEntry.type}`);
+        routineLog.appendChild(p);
+        routineLog.scrollTop = routineLog.scrollHeight;
+        console.log(`[FRONTEND LOG] ${logEntry.timestamp} [${logEntry.type.toUpperCase()}] ${logEntry.message}`);
+    }
+
+    function updateClientCard(clientData) { 
+        console.log(`[FRONTEND] Atualizando card para Sender ${clientData.id}: Status=${clientData.status}, QR=${clientData.qr ? 'Sim' : 'Não'}, Telefone=${clientData.phoneNumber}, É Restauração Inicial: ${clientData.isInitialRestore}`);
+
+        let clientCard = document.getElementById(`client-card-${clientData.id}`);
+
+        if (clientData.status === 'Removido') {
+            if (clientCard) {
+                clientCard.remove();
+                console.log(`[FRONTEND] Sender ${clientData.id} removido.`);
+            }
+            delete allClients[clientData.id];
+            updateAvailableClientsForRoutine();
+            return;
+        }
+
+        if (!clientCard) {
+            clientCard = document.createElement('div');
+            clientCard.id = `client-card-${clientData.id}`;
+            clientCard.classList.add('client-card');
+            clientsContainer.appendChild(clientCard);
+            console.log(`[FRONTEND] Card Sender ${clientData.id} criado.`);
+        }
+
+        // Atualiza o objeto global allClients para ter o estado mais recente
+        allClients[clientData.id] = { ...allClients[clientData.id], ...clientData };
+
+        let qrDisplayHtml = '';
+        let currentStatusText = clientData.status; 
+
+        // Lógica para adicionar "(Desatualizado)" ou "(Atualizado)"
+        if (clientData.isInitialRestore) {
+             // Este é um status inicial de carregamento/restauração.
+             // Se não é "Inicializando", então é um "lastKnownStatus".
+             if (clientData.status !== 'Inicializando') {
+                 currentStatusText = `${clientData.status} (Desatualizado)`;
+             } else {
+                 // Se é Inicializando durante uma uma restauração inicial, exibe apenas Inicializando
+                 currentStatusText = 'Inicializando';
+             }
+        } else {
+            // Este é um status vindo de um evento REAL do whatsapp-web.js (não é restauração inicial)
+            // Se o status é algo diferente de 'Inicializando', marcamos como (Atualizado)
+            if (clientData.status !== 'Inicializando' && clientData.status !== 'Removido') {
+                currentStatusText = `${clientData.status} (Atualizado)`;
+            } else if (clientData.status === 'Inicializando') {
+                // Se o status real é "Inicializando" (ex: após reautenticar)
+                currentStatusText = 'Inicializando'; 
+            }
+            // Se for "Removido", a lógica de remoção acima já trata
+        }
+
+
+        // Lógica de exibição do QR Code e Status baseado no status *real* e no QR *atual*
+        if (clientData.status === 'QR_CODE' && clientData.qr) {
+            qrDisplayHtml = `<img src="${clientData.qr}" alt="QR Code para Sender ${clientData.id}" style="width: 200px; height: 200px; display: block;">`;
+        } else if (clientData.status === 'Pronto') {
+            qrDisplayHtml = `<p>Conectado!</p>`;
+        } else if (clientData.status === 'Autenticado') {
+            qrDisplayHtml = `<p>Autenticado (Aguardando Pronto)...</p>`;
+        } else if (clientData.status === 'Desconectado' || clientData.status === 'Falha na Autenticação' || clientData.status === 'Erro' || clientData.status === 'Erro QR') {
+            qrDisplayHtml = `<p>${clientData.status}.</p>`;
+        } else if (clientData.qr) { // Caso especial: se há QR data, mesmo que o status não seja explicitamente 'QR_CODE'
+             qrDisplayHtml = `<img src="${clientData.qr}" alt="QR Code para Sender ${clientData.id}" style="width: 200px; height: 200px; display: block;">`;
+        } else if (clientData.status === 'Inicializando' && !clientData.qr) {
+            qrDisplayHtml = `<p>Inicializando...</p>`;
+        }
+
+
+        clientCard.innerHTML = `
+            <h3>Sender ${clientData.id}</h3>
+            <p><strong>Nome:</strong> ${clientData.name}</p>
+            <p><strong>Status:</strong> <span id="status-${clientData.id}">${currentStatusText}</span></p>
+            <p><strong>Telefone:</strong> <span id="phone-${clientData.id}">${clientData.phoneNumber || 'N/A'}</span></p>
+            <div class="qr-code-area" id="qr-area-${clientData.id}">
+                ${qrDisplayHtml}
+            </div>
+            <button class="reauthenticate-btn" data-client-id="${clientData.id}" ${clientData.status === 'Pronto' || clientData.status === 'Autenticado' ? '' : 'disabled'}>Reautenticar</button>
+        `;
+
+        const reauthenticateBtn = clientCard.querySelector(`.reauthenticate-btn`);
+        if (reauthenticateBtn) {
+            reauthenticateBtn.onclick = async () => {
+                console.log(`[FRONTEND] Botão Reautenticar clicado para Sender ${clientData.id}`);
+                try {
+                    const response = await fetch('/api/reauthenticate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ clientId: clientData.id })
+                    });
+                    const result = await response.json();
+                    if (!result.success) {
+                        appendRoutineLog({ timestamp: new Date().toLocaleTimeString(), message: `Falha na reautenticação para Sender ${clientData.id}: ${result.message}`, type: 'error' });
+                    }
+                } catch (error) {
+                    appendRoutineLog({ timestamp: new Date().toLocaleTimeString(), message: `Erro de rede ao reautenticar Sender ${clientData.id}: ${error.message}`, type: 'error' });
+                }
+            };
+        }
+        updateAvailableClientsForRoutine();
+    }
+
+
+    function updateAvailableClientsForRoutine() {
+        console.log('[FRONTEND] Atualizando lista de Senders disponíveis para rotina.');
+        availableClientsSelect.innerHTML = '<option value="">Todos os Prontos (Rodízio)</option>';
+
+        readyClientsForRoutine = Object.values(allClients).filter(client =>
+            // Agora, verificamos se o status INCLUI 'Pronto' para pegar tanto 'Pronto (Desatualizado)' quanto 'Pronto (Atualizado)'
+            client.status && client.status.includes('Pronto') && client.phoneNumber && client.phoneNumber !== 'N/A' && client.phoneNumber !== 'Erro ao obter Telefone'
+        );
+
+        if (readyClientsForRoutine.length === 0) {
+            startRoutineBtn.disabled = true;
+            stopRoutineBtn.disabled = true;
+            console.log('[FRONTEND] Nenhum Sender pronto para rotina, botões desabilitados.');
+            return;
+        }
+
+        readyClientsForRoutine.forEach(client => {
+            const option = document.createElement('option');
+            option.value = client.id;
+            option.textContent = `Sender ${client.id} (${client.phoneNumber})`;
+            availableClientsSelect.appendChild(option);
+        });
+
+        if (!routineStatusSpan.textContent.includes('Ativa')) {
+             startRoutineBtn.disabled = false;
+        }
+    }
+
+    async function saveLogManually() {
+        const logContent = routineLog.innerText;
+        if (!logContent) {
+            appendRoutineLog({ timestamp: new Date().toLocaleTimeString(), message: 'Não há conteúdo no log para salvar manualmente.', type: 'warning' });
+            return;
+        }
+        try {
+            const response = await fetch('/api/save-routine-log', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ log: logContent })
+            });
+            const result = await response.json();
+            if (result.success) {
+                appendRoutineLog({ timestamp: new Date().toLocaleTimeString(), message: `Log salvo manualmente com sucesso como ${result.filename}`, type: 'success' });
+            } else {
+                appendRoutineLog({ timestamp: new Date().toLocaleTimeString(), message: `Erro ao salvar log manualmente: ${result.message}`, type: 'error' });
+            }
+        } catch (error) {
+            appendRoutineLog({ timestamp: new Date().toLocaleTimeString(), message: `Erro de rede ao salvar log manualmente: ${error.message}`, type: 'error' });
+        }
+    }
+
+    async function startRoutineHandler() {
+        const selectedClientId = availableClientsSelect.value;
+        const rawContacts = contactListInput.value.trim();
+        const rawMessages = messageContentsInput.value.trim();
+        const minDelay = parseInt(minDelayInput.value);
+        const maxDelay = parseInt(maxDelayInput.value);
+
+        if (!rawContacts || !rawMessages) {
+            alert('Por favor, preencha a lista de contatos e o conteúdo das mensagens.');
+            return;
+        }
+        if (isNaN(minDelay) || isNaN(maxDelay) || minDelay < 0 || maxDelay < minDelay) {
+            alert('Por favor, defina um intervalo de atraso válido (Min >= 0, Max >= Min).');
+            return;
+        }
+
+        const parsedContacts = rawContacts.split('\n')
+                                    .map(line => {
+                                        const parts = line.split(',');
+                                        return {
+                                            nome: parts[0] ? parts[0].trim() : '',
+                                            numero: parts[1] ? parts[1].trim() : ''
+                                        };
+                                        
+                                    })
+                                    .filter(contact => contact.numero !== '');
+
+        const parsedMessages = rawMessages.split('\n¨¨\n')
+                                     .map(message => message.trim())
+                                     .filter(message => message !== '');
+
+        if (parsedContacts.length === 0) {
+            alert('A lista de contatos está vazia ou no formato incorreto. Use: Nome,Número');
+            return;
+        }
+        if (parsedMessages.length === 0) {
+            alert('A lista de mensagens está vazia.');
+            return;
+        }
+
+        console.log('[FRONTEND] Enviando requisição de início de rotina para o backend.');
+        try {
+            const response = await fetch('/api/routine/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contacts: parsedContacts,
+                    messages: parsedMessages,
+                    selectedClientId: selectedClientId || null,
+                    minDelay: minDelay * 1000,
+                    maxDelay: maxDelay * 1000
+                })
+            });
+            const result = await response.json();
+            if (result.success) {
+                routineLog.innerHTML = '';
+            } else {
+                alert(`Erro ao iniciar rotina: ${result.message}`);
+                appendRoutineLog({ timestamp: new Date().toLocaleTimeString(), message: `Falha ao iniciar rotina: ${result.message}`, type: 'error' });
+            }
+        } catch (error) {
+            alert(`Erro de rede ao iniciar rotina: ${error.message}`);
+            appendRoutineLog({ timestamp: new Date().toLocaleTimeString(), message: `Erro de rede ao iniciar rotina: ${error.message}`, type: 'error' });
+        }
+    }
+
+    async function stopRoutineHandler() {
+        console.log('[FRONTEND] Enviando requisição de parada de rotina para o backend.');
+        try {
+            const response = await fetch('/api/routine/stop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const result = await response.json();
+            if (!result.success) {
+                alert(`Erro ao parar rotina: ${result.message}`);
+                appendRoutineLog({ timestamp: new Date().toLocaleTimeString(), message: `Falha ao parar rotina: ${result.message}`, type: 'error' });
+            }
+        } catch (error) {
+            alert(`Erro de rede ao parar rotina: ${error.message}`);
+            appendRoutineLog({ timestamp: new Date().toLocaleTimeString(), message: `Erro de rede ao parar rotina: ${error.message}`, type: 'error' });
+        }
+    }
+
+    function updateProgressBar(currentIndex, totalContacts) {
+        if (totalContacts === 0) {
+            routineProgressBar.style.width = '0%';
+            routineProgressText.textContent = '0/0 (0%)';
+            return;
+        }
+        const percentage = (currentIndex / totalContacts) * 100;
+        routineProgressBar.style.width = `${percentage}%`;
+        routineProgressText.textContent = `${currentIndex}/${totalContacts} (${percentage.toFixed(2)}%)`;
+    }
+
+    function handleRoutineStatusUpdate(status) {
+        console.log('[FRONTEND] Recebida atualização de status da rotina:', status);
+        startRoutineBtn.disabled = status.isRunning;
+        stopRoutineBtn.disabled = !status.isRunning;
+
+        routineStatusSpan.textContent = status.isRunning ? 'Ativa' : 'Inativa';
+        routineStatusSpan.className = status.isRunning ? 'status-active' : 'status-inactive';
+
+        updateProgressBar(status.currentIndex, status.totalContacts);
+    }
+
+    // --- Listeners de Eventos Socket.IO ---
+    socket.on('initialClientStatus', (clientsArray) => {
+        console.log('[FRONTEND - SOCKET] initialClientStatus recebido:', clientsArray);
+        clientsContainer.innerHTML = ''; // Limpa Senders existentes
+        allClients = {}; // Limpa o objeto de Senders interno do frontend
+        clientsArray.forEach(client => updateClientCard(client)); 
+        console.log('[FRONTEND - SOCKET] Senders iniciais renderizados.');
+    });
+
+    socket.on('clientStatusUpdate', (client) => {
+        console.log(`[FRONTEND - SOCKET] clientStatusUpdate recebido para Sender: ${client.id}. Novo Status: ${client.status}`);
+        
+        updateClientCard(client); 
+    });
+
+    socket.on('routineLogUpdate', (logEntry) => {
+        appendRoutineLog(logEntry);
+    });
+
+    socket.on('routineStatus', (status) => {
+        handleRoutineStatusUpdate(status);
+    });
+
+    socket.on('readyClientsForRoutine', (clients) => {
+        readyClientsForRoutine = clients;
+        updateAvailableClientsForRoutine();
+        console.log('[FRONTEND - SOCKET] Lista de Senders prontos para rotina atualizada.');
+    });
+
+    // --- Listeners de Eventos do DOM ---
+    setClientsForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const newNumClients = parseInt(numClientsInput.value);
+        console.log(`[FRONTEND] Botão 'Definir Senders' clicado. Novo número: ${newNumClients}`);
+
+        if (isNaN(newNumClients) || newNumClients < 1 || newNumClients > 10) {
+            alert('Por favor, insira um número válido de Senders entre 1 e 10.');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/set-num-clients', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ numClients: newNumClients })
+            });
+            const result = await response.json();
+            if (!result.success) {
+                appendRoutineLog({ timestamp: new Date().toLocaleTimeString(), message: `Falha ao definir número de Senders: ${result.message}`, type: 'error' });
+            }
+        } catch (error) {
+                appendRoutineLog({ timestamp: new Date().toLocaleTimeString(), message: `Erro de rede ao definir número de Senders: ${error.message}`, type: 'error' });
+        }
+    });
+
+    startRoutineBtn.addEventListener('click', startRoutineHandler);
+    stopRoutineBtn.addEventListener('click', stopRoutineHandler);
+    saveLogBtn.addEventListener('click', saveLogManually);
+    saveMessagesBtn.addEventListener('click', saveMessagesHandler); // NOVO
+
+    // --- Funções de Handler ---
+    async function saveMessagesHandler() {
+        const rawMessages = messageContentsInput.value.trim();
+        if (!rawMessages) {
+            alert('Por favor, adicione pelo menos uma mensagem antes de salvar.');
+            messageContentsInput.focus();
+            return;
+        }
+
+        const parsedMessages = rawMessages.split('\n¨¨\n')
+                                     .map(message => message.trim())
+                                     .filter(message => message !== '');
+
+        if (parsedMessages.length === 0) {
+            alert('A lista de mensagens está vazia ou em formato incorreto.');
+            messageContentsInput.focus();
+            return;
+        }
+
+        console.log('[FRONTEND] Enviando requisição para salvar mensagens no backend.');
+        try {
+            const response = await fetch('/api/messages/import', { // Reutilizando o endpoint existente
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(parsedMessages)
+            });
+            const result = await response.json();
+            if (result.success) {
+                appendRoutineLog({ timestamp: new Date().toLocaleTimeString(), message: 'Mensagens salvas com sucesso no servidor.', type: 'success' });
+                alert(`${parsedMessages.length} mensagens foram salvas com sucesso!`); // NOVO ALERTA
+            } else {
+                alert(`Erro ao salvar mensagens: ${result.message}`);
+                appendRoutineLog({ timestamp: new Date().toLocaleTimeString(), message: `Falha ao salvar mensagens: ${result.message}`, type: 'error' });
+            }
+        } catch (error) {
+            alert(`Erro de rede ao salvar mensagens: ${error.message}`);
+            appendRoutineLog({ timestamp: new Date().toLocaleTimeString(), message: `Erro de rede ao salvar mensagens: ${error.message}`, type: 'error' });
+        }
+    }
+
+    // --- Inicialização ao Carregar a Página ---
+    fetch('/api/get-num-clients')
+        .then(response => response.json())
+        .then(data => {
+            if (data && typeof data.numClients === 'number') {
+                numClientsInput.value = data.numClients;
+                console.log(`[FRONTEND] Número de Senders inicial carregado: ${data.numClients}`);
+            }
+        })
+        .catch(error => {
+            console.error('[FRONTEND] Erro ao obter número de Senders:', error);
+            appendRoutineLog({ timestamp: new Date().toLocaleTimeString(), message: `Erro ao obter número de Senders: ${error.message}`, type: 'error' });
+        });
+
+    fetch('/api/routine/status')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.status) {
+                const status = data.status;
+                if (status.isRunning) {
+                    contactListInput.value = status.contactsList.map(c => `${c.nome},${c.numero}`).join('\n');
+                    messageContentsInput.value = status.messagesList.join('\n¨¨\n');
+                    minDelayInput.value = status.minDelay / 1000;
+                    maxDelayInput.value = status.maxDelay / 1000;
+                    availableClientsSelect.value = status.selectedClientId || '';
+
+                    routineLog.innerHTML = '';
+                    // logMessages no backend não existe mais, agora é routineLogEntries
+                    if (status.routineLogEntries && Array.isArray(status.routineLogEntries)) {
+                        status.routineLogEntries.forEach(logEntry => appendRoutineLog(logEntry));
+                    }
+                    
+                    handleRoutineStatusUpdate(status);
+                    appendRoutineLog({ timestamp: new Date().toLocaleTimeString(), message: 'Rotina resgatada do servidor.', type: 'info' });
+                    console.log('[FRONTEND] Rotina resgatada do servidor.');
+                } else {
+                    handleRoutineStatusUpdate(status);
+                    console.log('[FRONTEND] Nenhuma rotina ativa para resgatar.');
+                }
+            }
+        })
+        .catch(error => {
+            console.error('[FRONTEND] Erro ao resgatar status da rotina:', error);
+            appendRoutineLog({ timestamp: new Date().toLocaleTimeString(), message: `Erro ao resgatar status da rotina: ${error.message}`, type: 'error' });
+        });
+
+    // Solicita o status inicial dos Senders e Senders prontos para a rotina
+    socket.emit('requestInitialClientStatus');
+    socket.emit('requestReadyClients');
+    console.log('[FRONTEND] Solicitadas informações iniciais do Sender e rotina via Socket.IO.');
+
+    // NOVO: Carregar mensagens do messages.json
+    fetch('/api/messages')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.messages && data.messages.length > 0) {
+                messageContentsInput.value = data.messages.join('\n¨¨\n');
+                console.log(`[FRONTEND] ${data.messages.length} mensagens carregadas do backend.`);
+            } else {
+                console.log('[FRONTEND] Nenhuma mensagem encontrada no backend ou houve um erro.');
+            }
+        })
+        .catch(error => {
+            console.error('[FRONTEND] Erro ao buscar mensagens:', error);
+            appendRoutineLog({ timestamp: new Date().toLocaleTimeString(), message: `Erro ao buscar mensagens do servidor: ${error.message}`, type: 'error' });
+        });
+});
+    </script>
+</body>
+</html>
