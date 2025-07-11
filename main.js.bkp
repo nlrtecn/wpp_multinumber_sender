@@ -1,0 +1,973 @@
+// main.js
+import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
+import * as qrcode from 'qrcode';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+// Calcule __filename e __dirname para Módulos ES
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// FIX: Importar whatsapp-web.js como default export e desestruturar
+import pkg from 'whatsapp-web.js';
+const { Client, LocalAuth } = pkg;
+
+// Importar o routineManager
+import * as routineManager from './routineManager.js';
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+const SESSION_DIR = './.wwebjs_auth';
+const ROUTINE_STATE_FILE = path.join(__dirname, 'routineState.json'); // Caminho para o arquivo de estado da rotina
+// NOVO: Caminho para o arquivo de mensagens
+const MESSAGES_DB_FILE = path.join(__dirname, 'messages.json'); 
+
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+
+const logDir = path.join(__dirname, 'logs');
+if (!fs.existsSync(logDir)) {
+    console.log(`[BACKEND] Criando diretório de logs: ${logDir}`);
+    fs.mkdirSync(logDir);
+}
+
+if (!fs.existsSync(SESSION_DIR)) {
+    console.log(`[BACKEND] Criando diretório de sessão: ${SESSION_DIR}`);
+    fs.mkdirSync(SESSION_DIR);
+}
+
+const clients = new Map();
+
+// Estado inicial da rotina, será carregado ou sobrescrito pelo arquivo
+let routineState = {
+    isRunning: false,
+    currentIndex: 0,
+    totalContacts: 0,
+    successCount: 0,
+    failCount: 0,
+    contactsList: [],
+    messagesList: [], // A lista de mensagens será carregada ou definida aqui
+    minDelay: 5000,
+    maxDelay: 15000,
+    routineLogEntries: [], // Logs para serem reexibidos no frontend
+    readyClientsForRoutineRun: [], // Clientes prontos no momento da inicialização da rotina (lista isolada)
+    currentLiveReadyClients: [], // **NOVO**: Clientes prontos em tempo real (para persistência e UI)
+    routineConfig: null, // Armazenará a configuração da rotina ativa
+    routineIntervalId: null // Este será o Timeout object, não deve ser serializado
+};
+
+// Funções de persistência do estado da rotina
+function loadRoutineState() {
+    if (fs.existsSync(ROUTINE_STATE_FILE)) {
+        try {
+            const data = fs.readFileSync(ROUTINE_STATE_FILE, 'utf8');
+            const loadedState = JSON.parse(data);
+            // Mescla o estado carregado com o estado padrão para garantir todas as chaves
+            routineState = { ...routineState, ...loadedState };
+            console.log('[BACKEND] Estado da rotina carregado com sucesso.');
+            emitLog('Estado da rotina carregado do arquivo.', 'info');
+        } catch (error) {
+            console.error('[BACKEND] Erro ao carregar estado da rotina:', error);
+            emitLog('Erro ao carregar estado da rotina: ' + error.message, 'error');
+        }
+    } else {
+        console.log('[BACKEND] Arquivo de estado da rotina não encontrado, usando estado inicial.');
+    }
+}
+
+function saveRoutineState() {
+    try {
+        // Crie uma cópia do routineState e remova routineIntervalId antes de serializar
+        const stateToSave = { ...routineState };
+        delete stateToSave.routineIntervalId; // Exclua a referência circular
+
+        fs.writeFileSync(ROUTINE_STATE_FILE, JSON.stringify(stateToSave, null, 2), 'utf8');
+        console.log('[BACKEND] Estado da rotina salvo com sucesso.');
+    } catch (error) {
+        console.error('[BACKEND] Erro ao salvar estado da rotina:', error);
+        // Não chame emitLog aqui para evitar um loop infinito se emitLog também chamar saveRoutineState
+    }
+}
+
+// NOVO: Função para carregar mensagens do messages.json
+function loadMessagesDb() {
+    if (fs.existsSync(MESSAGES_DB_FILE)) {
+        try {
+            const data = fs.readFileSync(MESSAGES_DB_FILE, 'utf8');
+            const messages = JSON.parse(data);
+            if (Array.isArray(messages)) {
+                routineState.messagesList = messages;
+                console.log(`[BACKEND] ${messages.length} mensagens carregadas de messages.json.`);
+                emitLog(`${messages.length} mensagens carregadas do arquivo messages.json.`, 'info');
+            } else {
+                console.error('[BACKEND] messages.json não contém um array de mensagens.');
+                emitLog('Erro: messages.json não contém um array de mensagens.', 'error');
+            }
+        } catch (error) {
+            console.error('[BACKEND] Erro ao carregar mensagens de messages.json:', error);
+            emitLog('Erro ao carregar mensagens de messages.json: ' + error.message, 'error');
+        }
+    } else {
+        console.log('[BACKEND] Arquivo messages.json não encontrado. A lista de mensagens está vazia ou será definida pelo frontend.');
+        emitLog('Arquivo messages.json não encontrado.', 'warning');
+    }
+}
+
+
+function emitLog(message, type = 'info') {
+    const logEntry = { timestamp: new Date().toLocaleTimeString(), message, type };
+    routineState.routineLogEntries.push(logEntry);
+    io.emit('routineLogUpdate', logEntry);
+    console.log(`[BACKEND LOG] ${logEntry.timestamp} [${type.toUpperCase()}] ${message}`);
+    saveRoutineState(); // Salva o estado a cada novo log
+}
+
+function emitRoutineStatus() {
+    io.emit('routineStatus', {
+        isRunning: routineState.isRunning,
+        currentIndex: routineState.currentIndex,
+        totalContacts: routineState.totalContacts,
+        successCount: routineState.successCount,
+        failCount: routineState.failCount
+    });
+    console.log(`[BACKEND] Rotina Status Emitido: ${routineState.isRunning ? 'Ativa' : 'Inativa'}, Progresso: ${routineState.currentIndex}/${routineState.totalContacts}`);
+}
+
+async function updateAndEmitClientStatus(clientInstance, status, qrData = null, phoneNumber = 'N/A', isInitialRestore = false, targetSocket = null) {
+    const clientId = clientInstance.options.authStrategy.clientId;
+
+    clientInstance.lastKnownStatus = status;
+    clientInstance.lastQrData = qrData;
+    clientInstance.lastKnownPhoneNumber = phoneNumber;
+    // Adiciona a nova propriedade _isReadyCustom
+    clientInstance._isReadyCustom = (status === 'Pronto' && phoneNumber !== 'N/A');
+
+
+    const clientDataToEmit = {
+        id: clientId,
+        status: status,
+        name: `Cliente ${clientId}`,
+        qr: qrData,
+        phoneNumber: phoneNumber,
+        isInitialRestore: isInitialRestore,
+        _isReadyCustom: clientInstance._isReadyCustom // Incluir no dado a ser emitido
+    };
+
+    console.log(`[BACKEND - EMITTING] Client ${clientId} Status Update:`, JSON.stringify(clientDataToEmit), targetSocket ? '(Para socket específico)' : '(Para todos os sockets)');
+
+    if (targetSocket) {
+        targetSocket.emit('clientStatusUpdate', clientDataToEmit);
+    } else {
+        io.emit('clientStatusUpdate', clientDataToEmit);
+    }
+
+    emitLog(`Cliente ${clientId}: ${status}` + (phoneNumber !== 'N/A' ? ` (${phoneNumber})` : ''), 'info');
+}
+
+function createClient(clientId, initialClientData = {}) {
+    console.log(`[BACKEND] Tentando criar/inicializar Cliente ${clientId}...`);
+    const client = new Client({
+        authStrategy: new LocalAuth({ clientId: String(clientId), dataPath: SESSION_DIR }),
+        puppeteer: {
+            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        },
+        webVersionCache: {
+            type: 'remote',
+            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
+        }
+    });
+
+    client.lastKnownStatus = initialClientData.lastKnownStatus || 'Inicializando';
+    client.lastQrData = initialClientData.lastQrData || null;
+    client.lastKnownPhoneNumber = initialClientData.lastKnownPhoneNumber || 'N/A';
+    client._isReadyCustom = false; // Inicializa a nova flag customizada
+
+    clients.set(clientId, client);
+
+    client.on('qr', (qr) => {
+        qrcode.toDataURL(qr, (err, url) => {
+            if (err) {
+                console.error(`Erro ao gerar QR Code para Cliente ${clientId}:`, err);
+                updateAndEmitClientStatus(client, 'Erro QR', null, 'N/A', false);
+                return;
+            }
+            updateAndEmitClientStatus(client, 'QR_CODE', url, client.lastKnownPhoneNumber, false);
+        });
+    });
+
+    client.on('ready', async () => {
+        let phoneNumber = 'N/A';
+        try {
+            const info = await client.info;
+            if (info && info.wid && info.wid.user) {
+                phoneNumber = info.wid.user;
+            }
+            // AQUI: Define _isReadyCustom como true quando o cliente está pronto
+            client._isReadyCustom = true;
+            updateAndEmitClientStatus(client, 'Pronto', null, phoneNumber, false);
+        } catch (error) {
+            console.error(`[BACKEND] Erro ao obter telefone do Cliente ${clientId} no evento 'ready':`, error);
+            client._isReadyCustom = true; // Ainda consideramos pronto mesmo sem telefone no caso de erro na info
+            updateAndEmitClientStatus(client, 'Pronto', null, 'N/A', false);
+        }
+        console.log(`[BACKEND DEBUG] Cliente ${clientId} está PRONTO (via evento 'ready')! Emitting update.`);
+        updateAndEmitReadyClients(); // Chama aqui para atualizar a lista de clientes prontos
+    });
+
+    client.on('authenticated', () => {
+        updateAndEmitClientStatus(client, 'Autenticado', null, client.lastKnownPhoneNumber, false);
+        console.log(`[BACKEND DEBUG] Cliente ${clientId} está AUTENTICADO! Emitting update.`);
+    });
+
+    client.on('auth_failure', (msg) => {
+        // AQUI: Define _isReadyCustom como false em falha de autenticação
+        client._isReadyCustom = false;
+        updateAndEmitClientStatus(client, 'Falha na Autenticação', null, 'N/A', false);
+        console.log(`[BACKEND DEBUG] Cliente ${clientId} FALHA AUTENTICAÇÃO! Emitting update.`);
+    });
+
+    client.on('disconnected', (reason) => {
+        // AQUI: Define _isReadyCustom como false em desconexão
+        client._isReadyCustom = false;
+        updateAndEmitClientStatus(client, 'Desconectado', null, 'N/A', false);
+        console.log(`[BACKEND DEBUG] Cliente ${clientId} DESCONECTADO! Emitting update.`);
+        updateAndEmitReadyClients(); // Chama aqui para atualizar a lista de clientes prontos
+    });
+
+    client.initialize().then(async () => {
+        console.log(`[BACKEND DEBUG] Cliente ${clientId} inicializou com sucesso.`);
+        // Verifica a propriedade isReady interna da biblioteca, mas definimos a nossa customizada após o ready
+        if (client.isReady) { // Esta é a propriedade do whatsapp-web.js
+            let phoneNumber = 'N/A';
+            try {
+                const info = await client.info;
+                if (info && info.wid && info.wid.user) {
+                    phoneNumber = info.wid.user;
+                }
+            } catch (error) {
+                console.error(`[BACKEND] Erro ao obter telefone do Cliente ${clientId} após inicialização:`, error);
+                phoneNumber = client.lastKnownPhoneNumber || 'N/A'; // Usa o valor já conhecido se houver erro
+            }
+            // AQUI: Define _isReadyCustom como true se o cliente já está pronto após inicialização
+            client._isReadyCustom = true;
+            console.log(`[BACKEND DEBUG] Cliente ${clientId} detectado como PRONTO (via isReady check após initialize)! Forçando update.`);
+            updateAndEmitClientStatus(client, 'Pronto', null, phoneNumber, false);
+            updateAndEmitReadyClients(); // Chama aqui para atualizar a lista de clientes prontos
+        } else {
+             console.log(`[BACKEND DEBUG] Cliente ${clientId} não está pronto imediatamente após a inicialização. Status conhecido: ${client.lastKnownStatus}`);
+             // Se não está pronto, _isReadyCustom já deve ser false (valor padrão)
+             updateAndEmitClientStatus(client, client.lastKnownStatus, client.lastQrData, client.lastKnownPhoneNumber, false);
+        }
+    }).catch(err => {
+        console.error(`[BACKEND] Erro ao inicializar Cliente ${clientId}:`, err);
+        // AQUI: Define _isReadyCustom como false em erro de inicialização
+        client._isReadyCustom = false;
+        updateAndEmitClientStatus(client, 'Erro', null, 'N/A', false);
+    });
+    return client;
+}
+
+function updateAndEmitReadyClients() {
+    console.log('[BACKEND - DEBUG] --- Iniciando verificação de clientes prontos ---');
+    const allClients = Array.from(clients.values());
+    
+    allClients.forEach(c => {
+        // AQUI: Agora estamos logando nossa flag customizada
+        console.log(`[BACKEND - DEBUG] Cliente ${c.options.authStrategy.clientId}: _isReadyCustom=${c._isReadyCustom}, lastKnownPhoneNumber=${c.lastKnownPhoneNumber}`);
+    });
+
+    // AQUI: A condição de filtro usa nossa flag customizada
+    const readyClients = allClients
+        .filter(c => c._isReadyCustom && c.lastKnownPhoneNumber && c.lastKnownPhoneNumber !== 'N/A')
+        .map(c => ({ id: c.options.authStrategy.clientId, phoneNumber: c.lastKnownPhoneNumber, status: 'Pronto' }));
+
+    routineState.currentLiveReadyClients = readyClients; 
+    saveRoutineState(); 
+
+    io.emit('readyClientsForRoutine', readyClients);
+    console.log(`[BACKEND] Clientes Prontos Emitidos e Salvos: ${readyClients.length}`);
+    console.log('[BACKEND - DEBUG] --- Verificação de clientes prontos finalizada ---');
+}
+
+async function removeClient(clientId) {
+    const client = clients.get(clientId);
+    if (client) {
+        try {
+            await client.destroy();
+            clients.delete(clientId);
+            const sessionPath = path.join(SESSION_DIR, String(clientId));
+            if (fs.existsSync(sessionPath)) {
+                fs.rmSync(sessionPath, { recursive: true, force: true });
+            }
+            io.emit('clientStatusUpdate', { id: clientId, status: 'Removido', name: `Cliente ${clientId}` });
+            emitLog(`Cliente ${clientId} e seus dados de sessão foram removidos.`, 'success');
+            updateAndEmitReadyClients();
+        } catch (error) {
+            console.error(`[BACKEND] Erro ao remover Cliente ${clientId}:`, error);
+            emitLog(`Erro ao remover Cliente ${clientId}: ${error.message}`, 'error');
+        }
+    }
+}
+
+// Adaptação da função de rotina para usar o routineManager
+async function processNextMessage() {
+    if (!routineState.isRunning || routineState.currentIndex >= routineState.totalContacts) {
+        stopRoutineWrapper('completed');
+        return;
+    }
+
+    const contact = routineState.contactsList[routineState.currentIndex];
+    console.log('---------'+contact.nome+'---------'+contact.numero+'---------');
+    const rawMessage = routineState.messagesList[routineState.currentIndex % routineState.messagesList.length];
+    const finalMessage = rawMessage.replace(/{nome}/g, contact.nome);
+
+    let clientToSend;
+    const readyClientsIsolated = routineState.readyClientsForRoutineRun;
+
+    if (readyClientsIsolated.length === 0) {
+        emitLog('ERRO: Nenhum cliente "Pronto" disponível para iniciar a rotina (lista isolada vazia). Parando.', 'error');
+        stopRoutineWrapper('no_clients_available');
+        return;
+    }
+
+    // Se um cliente específico foi selecionado no início, usa ele
+    if (routineState.routineConfig && routineState.routineConfig.selectedClientId) {
+        const selectedClient = Array.from(clients.values()).find(c =>
+            c.options.authStrategy.clientId == routineState.routineConfig.selectedClientId
+        );
+
+        if (selectedClient && selectedClient._isReadyCustom) {
+            clientToSend = selectedClient;
+        } else {
+            emitLog(`O cliente selecionado para a rotina (${routineState.routineConfig.selectedClientId}) não está mais pronto ou disponível. Parando rotina.`, 'error');
+            stopRoutineWrapper('client_unavailable');
+            return;
+        }
+    } else {
+        // Lógica de seleção alternada com fallback
+        const initialClientId = readyClientsIsolated[routineState.currentIndex % readyClientsIsolated.length].id;
+        const initialClient = Array.from(clients.values()).find(c => c.options.authStrategy.clientId == initialClientId);
+
+        if (initialClient && initialClient._isReadyCustom) {
+            clientToSend = initialClient;
+        } else {
+            emitLog(`AVISO: Cliente designado ${initialClientId} não está pronto ou indisponível. Procurando um substituto...`, 'warning');
+            
+            let foundFallback = false;
+            // Tenta encontrar um substituto na lista de clientes isolados
+            for (let i = 1; i < readyClientsIsolated.length; i++) {
+                const fallbackIndex = (routineState.currentIndex + i) % readyClientsIsolated.length;
+                const fallbackClientId = readyClientsIsolated[fallbackIndex].id;
+                const fallbackClient = Array.from(clients.values()).find(c => c.options.authStrategy.clientId == fallbackClientId);
+
+                if (fallbackClient && fallbackClient._isReadyCustom) {
+                    clientToSend = fallbackClient;
+                    foundFallback = true;
+                    emitLog(`INFO: Cliente substituto ${fallbackClientId} encontrado. Usando-o para enviar a mensagem atual.`, 'info');
+                    break; // Sai do loop de busca
+                }
+            }
+
+            if (!foundFallback) {
+                emitLog('ERRO CRÍTICO: Nenhum cliente "Pronto" foi encontrado para assumir o envio. Parando a rotina.', 'error');
+                stopRoutineWrapper('no_clients_available');
+                return;
+            }
+        }
+    }
+
+    if (!clientToSend) {
+        emitLog('ERRO INESPERADO: Não foi possível selecionar um cliente para o envio. Parando a rotina.', 'error');
+        stopRoutineWrapper('no_clients_available');
+        return;
+    }
+
+    emitLog(`[${routineState.currentIndex + 1}/${routineState.totalContacts}] Tentando enviar (Cliente ${clientToSend.options.authStrategy.clientId}) para ${contact.nome} (${contact.numero})...`, 'info');
+
+    let success = false;
+    let errorMessage = '';
+    try {
+        const numberId = contact.numero.includes('@') ? contact.numero : `${contact.numero}@c.us`;
+        console.error(numberId);
+        
+        await clientToSend.sendMessage(numberId, finalMessage);
+        success = true;
+    } catch (error) {
+        console.error(`[BACKEND] Erro ao enviar mensagem para ${contact.nome} com Cliente ${clientToSend.options.authStrategy.clientId}:`, error);
+        errorMessage = error.message;
+    }
+
+    if (success) {
+        emitLog(`Sucesso: Cliente ${clientToSend.options.authStrategy.clientId} enviou para ${contact.nome} (${contact.nome})`, 'success');
+        routineState.successCount++;
+    } else {
+        emitLog(`Falha ao enviar para ${contact.nome} (${contact.nome}): ${errorMessage}`, 'error');
+        routineState.failCount++;
+    }
+
+    routineState.currentIndex++;
+    emitRoutineStatus();
+    saveRoutineState(); // Salva o estado após cada envio
+
+    if (routineState.isRunning && routineState.currentIndex < routineState.totalContacts) {
+        const delay = Math.floor(Math.random() * (routineState.maxDelay - routineState.minDelay + 1)) + routineState.minDelay;
+        emitLog(`Aguardando ${delay / 1000} segundos para a próxima mensagem...`, 'info');
+        routineState.routineIntervalId = setTimeout(processNextMessage, delay);
+    } else {
+        stopRoutineWrapper('finished');
+    }
+}
+
+function startRoutineWrapper(contacts, messages, selectedClientId, minDelay, maxDelay) {
+    if (routineState.isRunning) {
+        emitLog('Uma rotina já está em andamento.', 'warning');
+        return;
+    }
+
+    // A lista de clientes prontos para iniciar a rotina é baseada na lista 'live' atual
+    const readyClientsNow = Array.from(clients.values()).filter(c => c._isReadyCustom && c.lastKnownPhoneNumber && c.lastKnownPhoneNumber !== 'N/A');
+    if (readyClientsNow.length === 0) {
+        emitLog('Não há clientes WhatsApp prontos para iniciar a rotina. Por favor, conecte-se.', 'error');
+        return;
+    }
+
+    // Isola os clientes que estão prontos no momento de iniciar a rotina (snapshot)
+    routineState.readyClientsForRoutineRun = readyClientsNow.map(c => ({
+        id: c.options.authStrategy.clientId,
+        phoneNumber: c.lastKnownPhoneNumber
+    }));
+
+    routineState.isRunning = true;
+    routineState.currentIndex = 0;
+    routineState.successCount = 0;
+    routineState.failCount = 0;
+    
+    // --- INÍCIO DA NORMALIZAÇÃO DOS CONTATOS ---
+    routineState.contactsList = contacts.map(contact => {
+        let numero = String(contact.numero).replace(/\D/g, ''); // Remove caracteres não numéricos
+
+        // Heurística para normalizar números brasileiros (55DDXXXXXXXX -> 55DD9XXXXXXXX)
+        // Se o número começar com '55' (Brasil) e tiver 12 dígitos (55 + DD + 8 dígitos)
+        // e o 5º dígito (primeiro dígito após o DDD) não for '9' (indicativo de mobile moderno)
+        if (numero.startsWith('55') && numero.length == 13 && numero.substring(4, 5) == '9') {
+            const normalizedNumero = numero.substring(0, 4) + numero.substring(5);
+            emitLog(`Número ${contact.nome} normalizado para ${normalizedNumero} (removido '9').`, 'info');
+            return { numero: normalizedNumero, nome: contact.nome };
+        }
+        return { numero: numero, nome: contact.nome };
+    });
+    // --- FIM DA NORMALIZAÇÃO DOS CONTATOS ---
+
+    routineState.messagesList = messages; // Usa a lista de mensagens passada (pode vir do input ou do import)
+    routineState.totalContacts = routineState.contactsList.length; // Usa o total de contatos normalizados
+    routineState.minDelay = minDelay;
+    routineState.maxDelay = maxDelay;
+    routineState.routineLogEntries = []; // Limpa logs anteriores para nova rotina
+    routineState.routineConfig = { // Salva a configuração atual da rotina
+        message: messages[0], // Usamos a primeira mensagem como representação
+        minTime: minDelay,
+        maxTime: maxDelay,
+        contacts: routineState.contactsList, // Usa a lista de contatos normalizada
+        readyClientsUsed: routineState.readyClientsForRoutineRun,
+        selectedClientId: selectedClientId // Armazena o ID do cliente selecionado, se houver
+    };
+
+
+    emitLog('Rotina de envio iniciada no backend.', 'info');
+    emitRoutineStatus();
+    saveRoutineState(); // Salva o estado inicial da rotina
+    processNextMessage();
+}
+
+function stopRoutineWrapper(reason = 'manual') {
+    if (!routineState.isRunning && routineState.routineLogEntries.length === 0 && routineState.totalContacts === 0) {
+        emitLog('Nenhuma rotina ativa ou log recente para salvar.', 'info');
+        return;
+    }
+
+    clearTimeout(routineState.routineIntervalId);
+    routineState.routineIntervalId = null; // Garante que a referência circular seja removida
+    routineState.isRunning = false;
+
+    let finalMessage = '';
+    if (reason === 'manual') {
+        finalMessage = 'Rotina de envio parada manualmente.';
+    } else if (reason === 'completed' || reason === 'finished') {
+        finalMessage = 'Rotina de envio concluída.';
+    } else if (reason === 'client_unavailable') {
+        finalMessage = 'Rotina parada: Cliente WhatsApp indisponível.';
+    } else if (reason === 'no_clients_available') {
+        finalMessage = 'Rotina parada: Nenhum cliente WhatsApp disponível na lista isolada.';
+    }
+
+    emitLog(finalMessage, 'info');
+
+    emitLog('--- Resumo da Rotina ---', 'info');
+    emitLog(`Mensagens Enviadas com Sucesso: ${routineState.successCount}`, 'success');
+    emitLog(`Mensagens com Falha: ${routineState.failCount}`, 'error');
+
+    // Salva o log completo da rotina finalizada usando o routineManager original
+    if (routineState.routineConfig) {
+        routineManager.saveRoutineLog(
+            routineState.routineConfig,
+            [], // Main.js não mantém resultados detalhados por envio, apenas o manager original fazia
+            routineState.routineLogEntries.map(entry => `[${entry.timestamp}] ${entry.message}`)
+        );
+    } else {
+        // Caso a rotina pare muito rápido e routineConfig não tenha sido definido
+        routineManager.saveRoutineLog(
+            { message: 'N/A', minTime: routineState.minDelay, maxTime: routineState.maxDelay, contacts: routineState.contactsList, readyClientsUsed: routineState.readyClientsForRoutineRun },
+            [],
+            routineState.routineLogEntries.map(entry => `[${entry.timestamp}] ${entry.message}`)
+        );
+    }
+
+
+    emitRoutineStatus();
+
+    // Resetar o estado da rotina para o próximo ciclo
+    routineState.contactsList = [];
+    routineState.messagesList = [];
+    routineState.totalContacts = 0;
+    routineState.currentIndex = 0;
+    routineState.successCount = 0;
+    routineState.failCount = 0;
+    routineState.routineLogEntries = [];
+    routineState.readyClientsForRoutineRun = [];
+    routineState.routineConfig = null;
+    // routineState.currentLiveReadyClients não é resetado aqui, pois ele deve refletir o estado LIVE
+    saveRoutineState(); // Salva o estado resetado
+}
+
+app.post('/api/set-num-clients', async (req, res) => {
+    const { numClients } = req.body;
+    console.log(`[BACKEND] Recebida requisição para definir ${numClients} clientes.`);
+
+    if (typeof numClients !== 'number' || numClients < 1 || numClients > 10) {
+        return res.status(400).json({ success: false, message: 'Número de clientes inválido. Deve ser entre 1 e 10.' });
+    }
+
+    const currentClientIds = Array.from(clients.keys());
+    const clientsToKeep = currentClientIds.filter(id => id <= numClients);
+    const clientsToRemove = currentClientIds.filter(id => id > numClients);
+
+    for (const clientId of clientsToRemove) {
+        console.log(`[BACKEND] Removendo cliente ${clientId}`);
+        await removeClient(clientId);
+    }
+
+    const newClientPromises = [];
+    for (let i = 1; i <= numClients; i++) {
+        if (!clients.has(i)) {
+            console.log(`[BACKEND] Criando novo cliente ${i}`);
+            newClientPromises.push(createClient(i));
+        }
+    }
+    await Promise.all(newClientPromises);
+
+    const allClientsDataToEmit = Array.from(clients.values()).map(async (clientInstance) => {
+        let currentStatus = clientInstance.lastKnownStatus;
+        let qrData = clientInstance.lastQrData;
+        let phoneNumber = clientInstance.lastKnownPhoneNumber;
+        // AQUI: Obtém a flag customizada
+        let isReadyCustom = clientInstance._isReadyCustom;
+
+        if (clientInstance.isReady) { // Esta é a propriedade do whatsapp-web.js
+            currentStatus = 'Pronto';
+            qrData = null;
+            try {
+                const info = await clientInstance.info;
+                if (info && info.wid && info.wid.user) {
+                    phoneNumber = info.wid.user;
+                }
+                clientInstance.lastKnownStatus = currentStatus;
+                clientInstance.lastKnownPhoneNumber = phoneNumber;
+                isReadyCustom = true; // Garante que nossa flag esteja correta
+            } catch (error) {
+                console.error(`[BACKEND] Erro ao obter telefone do Cliente ${clientInstance.options.authStrategy.clientId} após set-num-clients:`, error);
+                phoneNumber = clientInstance.lastKnownPhoneNumber || 'N/A';
+            }
+        } else {
+             if (currentStatus === 'QR_CODE' && !qrData) {
+                 try {
+                    const qrPromise = new Promise((resolve, reject) => {
+                        const qrTimeout = setTimeout(() => {
+                            reject(new Error('Tempo limite de envio de mensagem excedido.')), 5000;
+                        });
+
+                        clientInstance.once('qr', (qr) => {
+                            clearTimeout(qrTimeout);
+                            qrcode.toDataURL(qr, (err, url) => {
+                                if (err) reject(err);
+                                else resolve(url);
+                            });
+                        });
+
+                        if (clientInstance.lastQrData) {
+                            clearTimeout(qrTimeout);
+                            resolve(clientInstance.lastQrData);
+                        }
+                    });
+
+                    qrData = await qrPromise;
+                    clientInstance.lastQrData = qrData;
+                 } catch (qrError) {
+                     console.error(`[BACKEND] Erro ao re-gerar QR para Cliente ${clientInstance.options.authStrategy.clientId} após set-num-clients:`, qrError.message);
+                     qrData = null;
+                 }
+             }
+             isReadyCustom = false; // Garante que nossa flag esteja correta
+        }
+
+        return {
+            id: clientInstance.options.authStrategy.clientId,
+            status: currentStatus,
+            name: `Cliente ${clientInstance.options.authStrategy.clientId}`,
+            qr: qrData,
+            phoneNumber: phoneNumber,
+            isInitialRestore: false,
+            _isReadyCustom: isReadyCustom // Incluir no dado a ser emitido
+        };
+    });
+
+    Promise.all(allClientsDataToEmit).then(data => {
+        io.emit('initialClientStatus', data);
+        console.log(`[BACKEND] Status de todos os clientes (${data.length}) re-emitidos após "Definir Clientes".`);
+    }).catch(error => {
+        console.error(`[BACKEND] Erro ao re-emitir status dos clientes após "Definir Clientes":`, error);
+    });
+
+    res.json({ success: true, message: `Número de clientes definido para ${numClients}.` });
+});
+
+app.get('/api/get-num-clients', (req, res) => {
+    console.log(`[BACKEND] Requisição para obter número de clientes. Clientes atuais: ${clients.size}`);
+    res.json({ success: true, numClients: clients.size });
+});
+
+app.post('/api/reauthenticate', async (req, res) => {
+    const { clientId } = req.body;
+    const client = clients.get(clientId);
+
+    if (!client) {
+        return res.status(404).json({ success: false, message: `Cliente ${clientId} não encontrado.` });
+    }
+
+    try {
+        emitLog(`Solicitando reautenticação para Cliente ${clientId}...`, 'info');
+        await client.destroy();
+        clients.delete(clientId);
+        const sessionPath = path.join(SESSION_DIR, String(clientId));
+        if (fs.existsSync(sessionPath)) {
+            fs.rmSync(sessionPath, { recursive: true, force: true });
+        }
+        createClient(clientId);
+        res.json({ success: true, message: `Reautenticação solicitada para Cliente ${clientId}. Um novo QR Code pode ser gerado.` });
+    }
+    catch (error) {
+        console.error(`[BACKEND] Erro ao tentar reautenticar Cliente ${clientId}:`, error);
+        res.status(500).json({ success: false, message: `Erro ao reautenticar Cliente ${clientId}: ${error.message}` });
+    }
+});
+
+// NOVO ENDPOINT: Importar mensagens de um arquivo JSON
+app.post('/api/messages/import', (req, res) => {
+    const newMessages = req.body;
+    console.log('[BACKEND] Recebida requisição para importar mensagens.');
+
+    if (!Array.isArray(newMessages)) {
+        return res.status(400).json({ success: false, message: 'O corpo da requisição deve ser um array de strings (mensagens).' });
+    }
+
+    if (newMessages.length === 0) {
+        return res.status(400).json({ success: false, message: 'O array de mensagens não pode estar vazio.' });
+    }
+
+    routineState.messagesList = newMessages.map(msg => String(msg)); // Garante que são strings
+    saveRoutineState(); // Salva o estado da rotina com as novas mensagens
+    
+    // Opcional: Salvar as mensagens também no arquivo messages.json
+    try {
+        fs.writeFileSync(MESSAGES_DB_FILE, JSON.stringify(newMessages, null, 2), 'utf8');
+        emitLog(`Mensagens (${newMessages.length}) importadas com sucesso para o sistema e salvas em messages.json.`, 'success');
+        res.json({ success: true, message: `Mensagens (${newMessages.length}) importadas com sucesso.` });
+    } catch (error) {
+        console.error('[BACKEND] Erro ao salvar mensagens importadas em messages.json:', error);
+        emitLog(`Erro ao salvar mensagens importadas em messages.json: ${error.message}`, 'error');
+        res.status(500).json({ success: false, message: `Erro ao salvar mensagens: ${error.message}` });
+    }
+});
+
+app.post('/api/routine/start', (req, res) => {
+    const { contacts, messages, selectedClientId, minDelay, maxDelay } = req.body;
+    console.log(`[BACKEND] Requisição para iniciar rotina. Contatos: ${contacts.length}, Mensagens: ${messages.length}`);
+
+    if (!contacts || contacts.length === 0 || !messages || messages.length === 0) {
+        return res.status(400).json({ success: false, message: 'Lista de contatos ou mensagens vazia.' });
+    }
+
+    if (routineState.isRunning) {
+        return res.status(409).json({ success: false, message: 'Uma rotina já está em andamento.' });
+    }
+
+    startRoutineWrapper(contacts, messages, selectedClientId, minDelay, maxDelay);
+    res.json({ success: true, message: 'Rotina de envio iniciada no servidor.' });
+});
+
+app.post('/api/routine/stop', (req, res) => {
+    console.log('[BACKEND] Requisição para parar rotina.');
+    if (!routineState.isRunning) {
+        return res.status(400).json({ success: false, message: 'Nenhuma rotina está em andamento para parar.' });
+    }
+    stopRoutineWrapper('manual');
+    res.json({ success: true, message: 'Rotina de envio parada.' });
+});
+
+app.get('/api/routine/status', (req, res) => {
+    // Retorna o status completo da rotina, incluindo currentLiveReadyClients
+    const { routineIntervalId, ...statusToSend } = routineState; // Garante que routineIntervalId não seja enviado
+    console.log(`[BACKEND] Requisição para obter status da rotina. Status: ${statusToSend.isRunning ? 'Ativa' : 'Inativa'}`);
+    res.json({ success: true, status: statusToSend });
+});
+
+io.on('connection', (socket) => {
+    console.log('[BACKEND - SOCKET.IO] Um usuário se conectou.');
+
+    // Inicializa o routineManager com a instância do Socket.IO
+    routineManager.init(io);
+
+    console.log('[BACKEND - SOCKET.IO] Preparando para enviar status atual para o novo socket conectado...');
+    const clientPromises = Array.from(clients.values()).map(async (clientInstance) => {
+        let currentStatus = clientInstance.lastKnownStatus;
+        let qrData = clientInstance.lastQrData;
+        let phoneNumber = clientInstance.lastKnownPhoneNumber;
+        let isInitial = true;
+        // AQUI: Obtém a flag customizada
+        let isReadyCustom = clientInstance._isReadyCustom;
+
+        if (clientInstance.isReady) { // Esta é a propriedade do whatsapp-web.js
+            currentStatus = 'Pronto';
+            qrData = null;
+            try {
+                const info = await clientInstance.info;
+                if (info && info.wid && info.wid.user) {
+                    phoneNumber = info.wid.user;
+                }
+                clientInstance.lastKnownStatus = currentStatus;
+                clientInstance.lastKnownPhoneNumber = phoneNumber;
+                isReadyCustom = true; // Garante que nossa flag esteja correta
+            } catch (error) {
+                console.error(`[BACKEND] Erro ao obter telefone do Cliente ${clientInstance.options.authStrategy.clientId} na conexão do socket (isReady):`, error);
+                phoneNumber = clientInstance.lastKnownPhoneNumber || 'N/A';
+            }
+            isInitial = false;
+        } else {
+            currentStatus = clientInstance.lastKnownStatus;
+            qrData = clientInstance.lastQrData;
+            phoneNumber = clientInstance.lastKnownPhoneNumber;
+            isInitial = false;
+            isReadyCustom = clientInstance._isReadyCustom; // Usa o valor atual da nossa flag
+        }
+
+        return {
+            id: clientInstance.options.authStrategy.clientId,
+            status: currentStatus,
+            name: `Cliente ${clientInstance.options.authStrategy.clientId}`,
+            qr: qrData,
+            phoneNumber: phoneNumber,
+            isInitialRestore: isInitial,
+            _isReadyCustom: isReadyCustom // Incluir no dado a ser emitido
+        };
+    });
+
+    Promise.all(clientPromises).then(initialClientsData => {
+        console.log(`[BACKEND - SOCKET.IO] Enviando ${initialClientsData.length} status de clientes para o socket recém-conectado.`);
+        socket.emit('initialClientStatus', initialClientsData);
+    }).catch(error => {
+        console.error('[BACKEND - SOCKET.IO] Erro ao preparar initialClientStatus para o novo socket:', error);
+    });
+
+    emitRoutineStatus();
+
+    // Re-emite logs da rotina que já foram registrados
+    routineState.routineLogEntries.forEach(logEntry => {
+        socket.emit('routineLogUpdate', logEntry);
+    });
+
+    socket.on('disconnect', () => {
+        console.log('[BACKEND - SOCKET.IO] Um usuário se desconectou.');
+    });
+
+    socket.on('requestInitialClientStatus', () => {
+        console.log('[BACKEND - SOCKET.IO] Frontend requisitou initialClientStatus.');
+        const requestedClientsDataPromises = Array.from(clients.values()).map(async (clientInstance) => {
+            let currentStatus = clientInstance.lastKnownStatus;
+            let qrData = clientInstance.lastQrData;
+            let phoneNumber = clientInstance.lastKnownPhoneNumber;
+            let isInitial = true;
+            // AQUI: Obtém a flag customizada
+            let isReadyCustom = clientInstance._isReadyCustom;
+
+            if (clientInstance.isReady) { // Esta é a propriedade do whatsapp-web.js
+                currentStatus = 'Pronto';
+                qrData = null;
+                try {
+                    const info = await clientInstance.info;
+                    if (info && info.wid && info.wid.user) {
+                        phoneNumber = info.wid.user;
+                    }
+                    clientInstance.lastKnownStatus = currentStatus;
+                    clientInstance.lastKnownPhoneNumber = phoneNumber;
+                    isReadyCustom = true; // Garante que nossa flag esteja correta
+                } catch (error) {
+                    console.error(`[BACKEND] Erro ao obter telefone do Cliente ${clientInstance.options.authStrategy.clientId} na requisição (isReady):`, error);
+                    phoneNumber = clientInstance.lastKnownPhoneNumber || 'N/A';
+                }
+                isInitial = false;
+            } else {
+                currentStatus = clientInstance.lastKnownStatus;
+                qrData = clientInstance.lastQrData;
+                phoneNumber = clientInstance.lastKnownPhoneNumber;
+                isInitial = false;
+                isReadyCustom = clientInstance._isReadyCustom; // Usa o valor atual da nossa flag
+            }
+            return {
+                id: clientInstance.options.authStrategy.clientId,
+                status: currentStatus,
+                name: `Cliente ${clientInstance.options.authStrategy.clientId}`,
+                qr: qrData,
+                phoneNumber: phoneNumber,
+                isInitialRestore: isInitial,
+                _isReadyCustom: isReadyCustom // Incluir no dado a ser emitido
+            };
+        });
+
+        Promise.all(requestedClientsDataPromises).then(data => {
+            socket.emit('initialClientStatus', data);
+        }).catch(error => {
+            console.error('[BACKEND - SOCKET.IO] Erro ao preparar initialClientStatus na requisição:', error);
+        });
+    });
+
+    socket.on('requestRoutineStatus', () => {
+        console.log('[BACKEND - SOCKET.IO] Frontend requisitou routineStatus.');
+        emitRoutineStatus();
+    });
+
+    socket.on('requestReadyClients', () => {
+        console.log('[BACKEND - SOCKET.IO] Frontend requisitou readyClients.');
+        updateAndEmitReadyClients(); // Garante que a lista mais recente seja enviada e salva
+    });
+});
+
+// --- INÍCIO DO TRATAMENTO DE ENCERRAMENTO ---
+
+async function cleanupAndExit(exitCode) {
+    console.log('[BACKEND] Iniciando processo de limpeza...');
+    emitLog('Servidor encerrando. Iniciando limpeza de clientes WhatsApp...', 'warning');
+
+    // Desativar a rotina se estiver ativa e salvar o estado final
+    if (routineState.isRunning) {
+        clearTimeout(routineState.routineIntervalId);
+        routineState.routineIntervalId = null;
+        routineState.isRunning = false;
+        emitLog('Rotina de envio interrompida durante o encerramento.', 'warning');
+        saveRoutineState(); // Salva o estado final da rotina interrompida
+    }
+
+    const destroyPromises = [];
+    for (const [clientId, client] of clients.entries()) {
+        if (client && typeof client.destroy === 'function') {
+            console.log(`[BACKEND] Destruindo Cliente ${clientId}...`);
+            emitLog(`Destruindo instância do Cliente ${clientId}...`, 'info');
+            destroyPromises.push(
+                client.destroy()
+                      .then(() => {
+                          clients.delete(clientId);
+                          console.log(`[BACKEND] Cliente ${clientId} destruído com sucesso.`);
+                      })
+                      .catch(err => console.error(`[BACKEND] Erro ao destruir Cliente ${clientId}:`, err))
+            );
+        }
+    }
+
+    await Promise.all(destroyPromises);
+    console.log('[BACKEND] Todos os clientes WhatsApp tentaram ser destruídos.');
+    emitLog('Limpeza de clientes WhatsApp concluída.', 'success');
+    process.exit(exitCode);
+}
+
+// Escuta por sinais de encerramento do processo
+process.on('SIGINT', async () => {
+    console.log('\n[BACKEND] SIGINT recebido (Ctrl+C). Encerrando graciosamente...');
+    await cleanupAndExit(0);
+});
+
+process.on('SIGTERM', async () => {
+    console.log('[BACKEND] SIGTERM recebido. Encerrando graciosamente...');
+    await cleanupAndExit(0);
+});
+
+process.on('uncaughtException', async (err) => {
+    console.error('[BACKEND] Exceção não tratada detectada:', err);
+    emitLog(`Erro fatal no servidor: ${err.message}. Encerrando...`, 'error');
+    await cleanupAndExit(1);
+});
+
+process.on('unhandledRejection', async (reason, promise) => {
+    console.error('[BACKEND] Promessa não tratada rejeitada em:', promise, 'razão:', reason);
+    emitLog(`Erro de promessa não tratada: ${reason}. Encerrando...`, 'error');
+    await cleanupAndExit(1);
+});
+
+// --- FIM DO TRATAMENTO DE ENCERRAMENTO ---
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, async () => {
+    console.log(`Servidor rodando na porta ${PORT}`);
+
+    // Carrega o estado da rotina ao iniciar o servidor
+    loadRoutineState();
+    // NOVO: Carrega as mensagens do arquivo messages.json
+    loadMessagesDb();
+
+    const existingSessions = fs.readdirSync(SESSION_DIR).filter(name => fs.statSync(path.join(SESSION_DIR, name)).isDirectory());
+    if (existingSessions.length === 0) {
+        console.log('[BACKEND] Nenhuma sessão existente encontrada, criando Cliente 1.');
+        createClient(1);
+    } else {
+        console.log(`[BACKEND] Sessões existentes encontradas: ${existingSessions.join(', ')}. Restaurando clientes...`);
+        const clientInitializationPromises = existingSessions.map(sessionId => {
+            const id = parseInt(sessionId);
+            if (!isNaN(id)) {
+                return new Promise(resolve => {
+                    const client = createClient(id);
+                    const timeout = setTimeout(() => {
+                        console.log(`[BACKEND WARNING] Cliente ${id} não atingiu 'ready' ou 'error' em tempo. Resolvendo com status atual.`);
+                        resolve();
+                    }, 15000); // Aumentado o tempo limite para dar mais chance ao WhatsApp Web de carregar
+
+                    const onReady = () => { clearTimeout(timeout); resolve(); client.off('ready', onReady); client.off('auth_failure', onAuthFailure); client.off('disconnected', onDisconnected); };
+                    const onAuthFailure = () => { clearTimeout(timeout); resolve(); client.off('ready', onReady); client.off('auth_failure', onAuthFailure); client.off('disconnected', onDisconnected); };
+                    const onDisconnected = () => { clearTimeout(timeout); resolve(); client.off('ready', onReady); client.off('auth_failure', onAuthFailure); client.off('disconnected', onDisconnected); };
+
+                    client.on('ready', onReady);
+                    client.on('auth_failure', onAuthFailure);
+                    client.on('disconnected', onDisconnected);
+                });
+            }
+            return Promise.resolve();
+        });
+
+        await Promise.all(clientInitializationPromises);
+        console.log('[BACKEND] Todos os clientes existentes foram processados na inicialização do servidor.');
+        // Após a inicialização de todos os clientes, atualiza a lista live e salva
+        updateAndEmitReadyClients();
+    }
+});

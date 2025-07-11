@@ -1,0 +1,22 @@
+{
+  "name": "whatsapp-manager",
+  "version": "1.0.0",
+  "description": "Gerenciador de Múltiplos Números para WhatsApp Web",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "start": "nodemon --watch config.json main.js"
+  },
+  "keywords": ["whatsapp", "multinumber", "sender", "automation", "api"],
+  "author": "Seu Nome/Empresa",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.19.2",
+    "qrcode": "^1.5.3",
+    "socket.io": "^4.7.5",
+    "whatsapp-web.js": "^1.23.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
